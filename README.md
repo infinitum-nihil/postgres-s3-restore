@@ -18,32 +18,26 @@ Restoring large PostgreSQL dumps from object storage to cloud databases is slow 
 - **Disaster recovery:** Restore from S3 backups to any PostgreSQL instance
 - **Database cloning:** Copy production to staging via S3 intermediary
 
-## Setup
+## Quick Start (5 Minutes)
 
-### 1. Fork or use this repository
+### 1. Use this template
 
-### 2. Configure GitHub Secrets
+Click **"Use this template"** → **"Create a new repository"** (or fork for contributions)
 
-Go to repository **Settings → Secrets and variables → Actions** and add:
+### 2. Configure secrets via CLI
 
-- `S3_ACCESS_KEY_ID` - Your S3/R2 access key
-- `S3_SECRET_ACCESS_KEY` - Your S3/R2 secret key
-- `POSTGRES_PASSWORD` - Target database password
+```bash
+cd your-repo
+echo "YOUR_S3_ACCESS_KEY" | gh secret set S3_ACCESS_KEY_ID
+echo "YOUR_S3_SECRET_KEY" | gh secret set S3_SECRET_ACCESS_KEY
+echo "YOUR_DB_PASSWORD" | gh secret set POSTGRES_PASSWORD
+```
 
-### 3. Trigger restore workflow
+**Alternative:** Set via web UI at **Settings → Secrets → Actions**
 
-**GitHub UI:**
-- Go to **Actions** tab
-- Select **"Restore PostgreSQL from S3/R2"** workflow
-- Click **"Run workflow"**
-- Fill in parameters:
-  - S3 bucket name
-  - Object key (path to dump file)
-  - S3 endpoint (for R2: `https://<account-id>.r2.cloudflarestorage.com`)
-  - PostgreSQL host, database, username
-  - Parallel jobs (1-8, default 4)
+### 3. Run the restore
 
-**CLI (gh):**
+**CLI (Recommended):**
 ```bash
 gh workflow run restore-from-s3.yml \
   -f s3_bucket="my-bucket" \
@@ -53,7 +47,14 @@ gh workflow run restore-from-s3.yml \
   -f postgres_database="neondb" \
   -f postgres_user="neondb_owner" \
   -f parallel_jobs=4
+
+# Watch progress
+gh run watch
 ```
+
+**Web UI:**
+- **Actions** tab → **Restore PostgreSQL from S3/R2** → **Run workflow**
+- Fill in parameters and click **Run**
 
 ## Parameters
 
