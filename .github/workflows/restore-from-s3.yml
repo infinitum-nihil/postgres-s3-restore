@@ -73,21 +73,49 @@ jobs:
       - name: Restore to PostgreSQL
         env:
           PGPASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+          # Connection keepalive to prevent SSL SYSCALL errors on long restores
+          PGSSLMODE: prefer
+          PGCONNECT_TIMEOUT: 30
+          PGCLIENTENCODING: UTF8
         run: |
           echo "Starting restore to ${{ inputs.postgres_host }}..."
 
-          pg_restore \
-            -h ${{ inputs.postgres_host }} \
-            -U ${{ inputs.postgres_user }} \
-            -d ${{ inputs.postgres_database }} \
-            -v \
-            --no-owner \
-            --no-acl \
-            -j ${{ inputs.parallel_jobs }} \
-            /tmp/restore.dump \
-            2>&1 | tee /tmp/restore.log
+          # Retry logic for network resilience (3 attempts)
+          ATTEMPT=1
+          MAX_ATTEMPTS=3
 
-          echo "Restore completed"
+          while [ $ATTEMPT -le $MAX_ATTEMPTS ]; do
+            echo "Restore attempt $ATTEMPT of $MAX_ATTEMPTS..."
+
+            if pg_restore \
+              -h ${{ inputs.postgres_host }} \
+              -U ${{ inputs.postgres_user }} \
+              -d ${{ inputs.postgres_database }} \
+              -v \
+              --no-owner \
+              --no-acl \
+              $([ $ATTEMPT -gt 1 ] && echo "--clean") \
+              -j ${{ inputs.parallel_jobs }} \
+              /tmp/restore.dump \
+              2>&1 | tee -a /tmp/restore.log; then
+              echo "✓ Restore completed successfully"
+              exit 0
+            else
+              EXIT_CODE=$?
+              echo "✗ Restore attempt $ATTEMPT failed with exit code $EXIT_CODE"
+
+              if [ $ATTEMPT -lt $MAX_ATTEMPTS ]; then
+                WAIT_TIME=$((ATTEMPT * 30))
+                echo "Waiting ${WAIT_TIME}s before retry..."
+                sleep $WAIT_TIME
+              fi
+
+              ATTEMPT=$((ATTEMPT + 1))
+            fi
+          done
+
+          echo "✗ All restore attempts failed"
+          exit 1
 
       - name: Verify restore
         env:
