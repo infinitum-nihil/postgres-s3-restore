@@ -1,0 +1,108 @@
+name: Restore PostgreSQL from S3/R2
+
+on:
+  workflow_dispatch:
+    inputs:
+      s3_bucket:
+        description: 'S3/R2 bucket name'
+        required: true
+        type: string
+      s3_key:
+        description: 'S3/R2 object key (path to dump file)'
+        required: true
+        type: string
+      s3_endpoint:
+        description: 'S3/R2 endpoint URL (leave empty for AWS S3)'
+        required: false
+        type: string
+        default: ''
+      postgres_host:
+        description: 'PostgreSQL host (Neon, Vultr, etc.)'
+        required: true
+        type: string
+      postgres_database:
+        description: 'PostgreSQL database name'
+        required: true
+        type: string
+        default: 'neondb'
+      postgres_user:
+        description: 'PostgreSQL username'
+        required: true
+        type: string
+      parallel_jobs:
+        description: 'Number of parallel restore jobs (1-8)'
+        required: false
+        type: number
+        default: 4
+
+jobs:
+  restore:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180  # 3 hour max
+
+    steps:
+      - name: Setup PostgreSQL client
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client-16 awscli
+
+      - name: Download dump from S3/R2
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.S3_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_SECRET_ACCESS_KEY }}
+        run: |
+          if [ -n "${{ inputs.s3_endpoint }}" ]; then
+            # R2 or S3-compatible storage
+            aws s3 cp s3://${{ inputs.s3_bucket }}/${{ inputs.s3_key }} /tmp/restore.dump \
+              --endpoint-url=${{ inputs.s3_endpoint }}
+          else
+            # AWS S3
+            aws s3 cp s3://${{ inputs.s3_bucket }}/${{ inputs.s3_key }} /tmp/restore.dump
+          fi
+
+          echo "Downloaded $(du -h /tmp/restore.dump | cut -f1) dump file"
+
+      - name: Verify dump integrity
+        run: |
+          pg_restore --list /tmp/restore.dump | head -20
+          echo "Dump file valid"
+
+      - name: Restore to PostgreSQL
+        env:
+          PGPASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+        run: |
+          echo "Starting restore to ${{ inputs.postgres_host }}..."
+
+          pg_restore \
+            -h ${{ inputs.postgres_host }} \
+            -U ${{ inputs.postgres_user }} \
+            -d ${{ inputs.postgres_database }} \
+            -v \
+            --no-owner \
+            --no-acl \
+            -j ${{ inputs.parallel_jobs }} \
+            /tmp/restore.dump \
+            2>&1 | tee /tmp/restore.log
+
+          echo "Restore completed"
+
+      - name: Verify restore
+        env:
+          PGPASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+        run: |
+          echo "Verifying restore..."
+
+          psql -h ${{ inputs.postgres_host }} \
+               -U ${{ inputs.postgres_user }} \
+               -d ${{ inputs.postgres_database }} \
+               -c "SELECT
+                     pg_size_pretty(pg_database_size('${{ inputs.postgres_database }}')) as size,
+                     (SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'public') as table_count;"
+
+      - name: Upload restore log
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: restore-log
+          path: /tmp/restore.log
+          retention-days: 7
