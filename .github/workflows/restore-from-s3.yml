@@ -44,7 +44,13 @@ jobs:
       - name: Setup PostgreSQL client
         run: |
           sudo apt-get update
-          sudo apt-get install -y postgresql-client-16 awscli
+          sudo apt-get install -y postgresql-client-16
+
+          # Install AWS CLI v2 (awscli not available in Ubuntu 24.04)
+          curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+          unzip -q awscliv2.zip
+          sudo ./aws/install
+          aws --version
 
       - name: Download dump from S3/R2
         env:
