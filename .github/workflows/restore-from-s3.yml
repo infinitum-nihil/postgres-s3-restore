@@ -39,6 +39,7 @@ jobs:
   restore:
     runs-on: ubuntu-latest
     timeout-minutes: 180  # 3 hour max
+    environment: production
 
     steps:
       - name: Setup PostgreSQL client
